@@ -45,6 +45,21 @@ assert_equal("GIT_REPOSITORY;git@host.xz:user/pkg.git;VERSION;0.1.2" "${args}")
 cpm_parse_add_package_single_arg("git@host.xz:user/pkg.git@0.1.2#rc" args)
 assert_equal("GIT_REPOSITORY;git@host.xz:user/pkg.git;VERSION;0.1.2;GIT_TAG;rc" "${args}")
 
+set(CPM_CUSTOM_SCHEMES "ir" "company.internalreposerver.org")
+LIST(APPEND CPM_CUSTOM_SCHEMES "af" "https://my.company.artifatory/pkgs")
+
+cpm_parse_add_package_single_arg("ir:somegroup/somerepo.git@0.20.3#asdf" args)
+assert_equal(
+  "GIT_REPOSITORY;git@company.internalreposerver.org/somegroup/somerepo.git;VERSION;0.20.3;GIT_TAG;asdf"
+  "${args}"
+)
+
+cpm_parse_add_package_single_arg("af:somegroup/someitem.zip" args)
+assert_equal(
+        "URL;https://my.company.artifatory/pkgs/somegroup/someitem.zip"
+        "${args}"
+)
+
 cpm_parse_add_package_single_arg(
   "ssh://user@host.xz:123/path/to/pkg.git#fragment@1.2.3#branch" args
 )

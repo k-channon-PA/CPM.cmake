@@ -334,6 +334,44 @@ function(cpm_check_if_package_already_added CPM_ARGS_NAME CPM_ARGS_VERSION)
   endif()
 endfunction()
 
+# Look through the CPM_CUSTOM_SCHEMES that the user might have defined to find one that
+# matches the supplied scheme value.
+# - If a match is found, uriRoot will be populated and foundCustomScheme set to TRUE.
+# - If a match is NOT found, uriRoot will be empty and foundCustomScheme set to FALSE.
+function(find_url_root_from_custom_scheme scheme foundCustomScheme uriRoot)
+  set(foundCustomScheme
+      FALSE
+      PARENT_SCOPE
+  )
+
+  list(LENGTH CPM_CUSTOM_SCHEMES len)
+  math(EXPR len "${len} - 1")
+  foreach(i RANGE 0 ${len} 2)
+    list(GET CPM_CUSTOM_SCHEMES ${i} customScheme)
+    if(scheme STREQUAL ${customScheme})
+      math(EXPR j "${i} + 1")
+      list(GET CPM_CUSTOM_SCHEMES ${j} customUriRoot)
+      set(foundCustomScheme
+          TRUE
+          PARENT_SCOPE
+      )
+      break()
+    endif()
+  endforeach()
+
+  if(foundCustomScheme)
+    set(${uriRoot}
+        "${customUriRoot}"
+        PARENT_SCOPE
+    )
+  else()
+    set(${uriRoot}
+        ""
+        PARENT_SCOPE
+    )
+  endif()
+endfunction()
+
 # Parse the argument of CPMAddPackage in case a single one was provided and convert it to a list of
 # arguments which can then be parsed idiomatically. For example gh:foo/bar@1.2.3 will be converted
 # to: GITHUB_REPOSITORY;foo/bar;VERSION;1.2.3
@@ -358,10 +396,22 @@ function(cpm_parse_add_package_single_arg arg outArgs)
     elseif(arg MATCHES ".git/?(@|#|$)")
       set(out "GIT_REPOSITORY;${arg}")
       set(packageType "git")
+      if(CPM_CUSTOM_SCHEMES)
+        find_url_root_from_custom_scheme(${scheme} foundCustomScheme uriRoot)
+        if(foundCustomScheme)
+          set(out "GIT_REPOSITORY;git@${uriRoot}/${uri}")
+        endif()
+      endif()
     else()
       # Fall back to a URL
       set(out "URL;${arg}")
       set(packageType "archive")
+      if(CPM_CUSTOM_SCHEMES)
+        find_url_root_from_custom_scheme(${scheme} foundCustomScheme uriRoot)
+        if(foundCustomScheme)
+          set(out "URL;${uriRoot}/${uri}")
+        endif()
+      endif()
 
       # We could also check for SVN since FetchContent supports it, but SVN is so rare these days.
       # We just won't bother with the additional complexity it will induce in this function. SVN is
