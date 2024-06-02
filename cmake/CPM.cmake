@@ -150,6 +150,10 @@ set(CPM_DRY_RUN
     OFF
     CACHE INTERNAL "Don't download or configure dependencies (for testing)"
 )
+set(CPM_URI_SCHEMES
+    "gh!https://github.com!.git" "gl!https://gitlab.com!.git" "bb!https://bitbucket.org!.git"
+    CACHE INTERNAL ""
+)
 
 if(DEFINED ENV{CPM_SOURCE_CACHE})
   set(CPM_SOURCE_CACHE_DEFAULT $ENV{CPM_SOURCE_CACHE})
@@ -334,39 +338,105 @@ function(cpm_check_if_package_already_added CPM_ARGS_NAME CPM_ARGS_VERSION)
   endif()
 endfunction()
 
-# Look through the CPM_CUSTOM_SCHEMES that the user might have defined to find one that
-# matches the supplied scheme value.
-# - If a match is found, uriRoot will be populated and foundCustomScheme set to TRUE.
-# - If a match is NOT found, uriRoot will be empty and foundCustomScheme set to FALSE.
-function(find_url_root_from_custom_scheme scheme foundCustomScheme uriRoot)
-  set(foundCustomScheme
+# Look through the CPM_URI_SCHEMES (default and user-defined) to find one that matches the
+# supplied scheme value. If a match is found, uriRoot will be populated and foundCustomScheme set
+# to TRUE. If a match is NOT found, foundCustomScheme set to FALSE.
+function(cpm_expand_via_scheme scheme uriFragment applySuffix expanded success)
+  set(${success}
       FALSE
       PARENT_SCOPE
   )
 
-  list(LENGTH CPM_CUSTOM_SCHEMES len)
-  math(EXPR len "${len} - 1")
-  foreach(i RANGE 0 ${len} 2)
-    list(GET CPM_CUSTOM_SCHEMES ${i} customScheme)
-    if(scheme STREQUAL ${customScheme})
-      math(EXPR j "${i} + 1")
-      list(GET CPM_CUSTOM_SCHEMES ${j} customUriRoot)
-      set(foundCustomScheme
+  foreach(mapping ${CPM_URI_SCHEMES})
+    if("${mapping}" MATCHES "^([a-zA-Z][a-zA-Z0-9]*)!(.+)!(.*)$")
+      string(TOLOWER "${CMAKE_MATCH_1}" thisScheme)
+      if(scheme STREQUAL ${thisScheme})
+        set(uriRoot "${CMAKE_MATCH_2}")
+        if(applySuffix)
+          set(suffix "${CMAKE_MATCH_3}")
+          string(REGEX REPLACE "^([^#@]+)" "\\1${suffix}" uriFragment "${uriFragment}")
+        endif()
+
+        set(expandedValue "${uriRoot}/${uriFragment}")
+        set(${expanded}
+            ${expandedValue}
+            PARENT_SCOPE
+        )
+        set(${success}
+            "TRUE"
+            PARENT_SCOPE
+        )
+        break()
+      endif()
+    endif()
+  endforeach()
+endfunction()
+
+function(cpm_is_valid_scheme scheme result)
+  set(${success}
+      FALSE
+      PARENT_SCOPE
+  )
+
+  foreach(mapping ${CPM_URI_SCHEMES})
+    if("${mapping}" MATCHES "^([a-zA-Z][a-zA-Z0-9]*)!(.+)!(.*)$")
+      string(TOLOWER "${CMAKE_MATCH_1}" testScheme)
+      if(scheme STREQUAL ${testScheme})
+        set(${result}
+            TRUE
+            PARENT_SCOPE
+        )
+        break()
+      endif()
+    endif()
+  endforeach()
+endfunction()
+
+function(cpm_extract_scheme mapping scheme uriFragment success)
+  set(${success}
+      FALSE
+      PARENT_SCOPE
+  )
+
+  if("${mapping}" MATCHES "^([a-zA-Z][a-zA-Z0-9]*):(.+)$")
+    string(TOLOWER "${CMAKE_MATCH_1}" foundScheme)
+    cpm_is_valid_scheme(${foundScheme} isValidScheme)
+    if(${isValidScheme})
+      set(${scheme}
+          ${foundScheme}
+          PARENT_SCOPE
+      )
+      set(${uriFragment}
+          "${CMAKE_MATCH_2}"
+          PARENT_SCOPE
+      )
+      set(${success}
           TRUE
           PARENT_SCOPE
       )
-      break()
-    endif()
-  endforeach()
+    else()
 
-  if(foundCustomScheme)
-    set(${uriRoot}
-        "${customUriRoot}"
+    endif()
+  endif()
+endfunction()
+
+function(cpm_infer_repo_and_package_type uri repoTypeStr pkgType)
+  if("${uri}" MATCHES ".git([@#$]?)")
+    set(${repoTypeStr}
+        "GIT_REPOSITORY"
+        PARENT_SCOPE
+    )
+    set(${pkgType}
+        "git"
         PARENT_SCOPE
     )
   else()
-    set(${uriRoot}
-        ""
+    set(${repoTypeStr}
+        "URL"
+        PARENT_SCOPE
+    )
+    set(${pkgType}
+        "archive"
         PARENT_SCOPE
     )
   endif()
@@ -376,55 +446,20 @@ endfunction()
 # arguments which can then be parsed idiomatically. For example gh:foo/bar@1.2.3 will be converted
 # to: GITHUB_REPOSITORY;foo/bar;VERSION;1.2.3
 function(cpm_parse_add_package_single_arg arg outArgs)
-  # Look for a scheme
-  if("${arg}" MATCHES "^([a-zA-Z]+):(.+)$")
-    string(TOLOWER "${CMAKE_MATCH_1}" scheme)
-    set(uri "${CMAKE_MATCH_2}")
-
-    # Check for CPM-specific schemes
-    if(scheme STREQUAL "gh")
-      set(out "GITHUB_REPOSITORY;${uri}")
-      set(packageType "git")
-    elseif(scheme STREQUAL "gl")
-      set(out "GITLAB_REPOSITORY;${uri}")
-      set(packageType "git")
-    elseif(scheme STREQUAL "bb")
-      set(out "BITBUCKET_REPOSITORY;${uri}")
-      set(packageType "git")
-      # A CPM-specific scheme was not found. Looks like this is a generic URL so try to determine
-      # type
-    elseif(arg MATCHES ".git/?(@|#|$)")
-      set(out "GIT_REPOSITORY;${arg}")
-      set(packageType "git")
-      if(CPM_CUSTOM_SCHEMES)
-        find_url_root_from_custom_scheme(${scheme} foundCustomScheme uriRoot)
-        if(foundCustomScheme)
-          set(out "GIT_REPOSITORY;git@${uriRoot}/${uri}")
-        endif()
-      endif()
+  # Look for a scheme. The uriFragment may also be returned with version and tag/hash info on the
+  # end of it.
+  cpm_extract_scheme(${arg} scheme uriFragment isScheme)
+  if(isScheme)
+    cpm_expand_via_scheme(${scheme} ${uriFragment} TRUE completeUri successfulExpansion)
+    if(successfulExpansion)
+      cpm_infer_repo_and_package_type(${completeUri} repoType packageType)
+      set(out "${repoType};${completeUri}")
     else()
-      # Fall back to a URL
-      set(out "URL;${arg}")
-      set(packageType "archive")
-      if(CPM_CUSTOM_SCHEMES)
-        find_url_root_from_custom_scheme(${scheme} foundCustomScheme uriRoot)
-        if(foundCustomScheme)
-          set(out "URL;${uriRoot}/${uri}")
-        endif()
-      endif()
-
-      # We could also check for SVN since FetchContent supports it, but SVN is so rare these days.
-      # We just won't bother with the additional complexity it will induce in this function. SVN is
-      # done by multi-arg
+      message(FATAL_ERROR "${CPM_INDENT} Failed to expand scheme from '${arg}'")
     endif()
   else()
-    if(arg MATCHES ".git/?(@|#|$)")
-      set(out "GIT_REPOSITORY;${arg}")
-      set(packageType "git")
-    else()
-      # Give up
-      message(FATAL_ERROR "${CPM_INDENT} Can't determine package type of '${arg}'")
-    endif()
+    cpm_infer_repo_and_package_type(${arg} repoType packageType)
+    set(out "${repoType};${arg}")
   endif()
 
   # For all packages we interpret @... as version. Only replace the last occurrence. Thus URIs
@@ -606,11 +641,34 @@ function(CPMAddPackage)
   endif()
 
   if(DEFINED CPM_ARGS_GITHUB_REPOSITORY)
-    set(CPM_ARGS_GIT_REPOSITORY "https://github.com/${CPM_ARGS_GITHUB_REPOSITORY}.git")
+    cpm_expand_via_scheme("gh" ${CPM_ARGS_GITHUB_REPOSITORY} FALSE completeUri successfulExpansion)
+    if(NOT successfulExpansion)
+      message(
+        FATAL_ERROR
+          "${CPM_INDENT} Failed to generate Github repository URL from '${CPM_ARGS_GITHUB_REPOSITORY}'"
+      )
+    endif()
+    set(CPM_ARGS_GIT_REPOSITORY "${completeUri}")
   elseif(DEFINED CPM_ARGS_GITLAB_REPOSITORY)
-    set(CPM_ARGS_GIT_REPOSITORY "https://gitlab.com/${CPM_ARGS_GITLAB_REPOSITORY}.git")
+    cpm_expand_via_scheme("gl" ${CPM_ARGS_GITLAB_REPOSITORY} FALSE completeUri successfulExpansion)
+    if(NOT successfulExpansion)
+      message(
+        FATAL_ERROR
+          "${CPM_INDENT} Failed to generate Gitlab repository URL from '${CPM_ARGS_GITLAB_REPOSITORY}'"
+      )
+    endif()
+    set(CPM_ARGS_GIT_REPOSITORY "${completeUri}")
   elseif(DEFINED CPM_ARGS_BITBUCKET_REPOSITORY)
-    set(CPM_ARGS_GIT_REPOSITORY "https://bitbucket.org/${CPM_ARGS_BITBUCKET_REPOSITORY}.git")
+    cpm_expand_via_scheme(
+      "bb" ${CPM_ARGS_BITBUCKET_REPOSITORY} FALSE completeUri successfulExpansion
+    )
+    if(NOT successfulExpansion)
+      message(
+        FATAL_ERROR
+          "${CPM_INDENT} Failed to generate Bitbucket repository URL from '${CPM_ARGS_BITBUCKET_REPOSITORY}'"
+      )
+    endif()
+    set(CPM_ARGS_GIT_REPOSITORY "${completeUri}")
   endif()
 
   if(DEFINED CPM_ARGS_GIT_REPOSITORY)
@@ -1206,4 +1264,35 @@ function(cpm_prettify_package_arguments OUT_VAR IS_IN_COMMENT)
       PARENT_SCOPE
   )
 
+endfunction()
+
+function(CPMDefineUriScheme)
+  set(oneValueArgs ALIAS LONG_NAME URI_ROOT URI_SUFFIX)
+  cmake_parse_arguments(CPM_SCHEME "" "${oneValueArgs}" "" ${ARGN})
+
+  if(NOT DEFINED CPM_SCHEME_ALIAS)
+    message(FATAL_ERROR "${CPM_INDENT} CPMDefineUriScheme requires ALIAS argument")
+  endif()
+  if(NOT DEFINED CPM_SCHEME_LONG_NAME)
+    message(FATAL_ERROR "${CPM_INDENT} CPMDefineUriScheme requires LONG_NAME argument")
+  endif()
+  if(NOT DEFINED CPM_SCHEME_URI_ROOT)
+    message(FATAL_ERROR "${CPM_INDENT} CPMDefineUriScheme requires URI_ROOT argument")
+  endif()
+  if(NOT DEFINED CPM_SCHEME_URI_SUFFIX)
+    set(CPM_SCHEME_URI_SUFFIX "")
+  endif()
+
+  set(newScheme "${CPM_SCHEME_ALIAS}!${CPM_SCHEME_URI_ROOT}!${CPM_SCHEME_URI_SUFFIX}")
+
+  list(TRANSFORM CPM_URI_SCHEMES REPLACE "^${CPM_SCHEME_ALIAS}!" "${newScheme}")
+  list(FIND CPM_URI_SCHEMES "${newScheme}" index)
+  if(index EQUAL -1)
+    list(APPEND CPM_URI_SCHEMES "${newScheme}")
+  endif()
+
+  set(CPM_URI_SCHEMES
+      ${CPM_URI_SCHEMES}
+      CACHE INTERNAL ""
+  )
 endfunction()
