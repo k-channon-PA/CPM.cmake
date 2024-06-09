@@ -157,8 +157,8 @@ set(CPM_URI_SCHEMES
     CACHE INTERNAL ""
 )
 
-function(cpm_uri_scheme_from_string schemeStr alias longName uriRoot uriSuffix)
-  if("${scheme}" MATCHES "^([a-zA-Z][a-zA-Z0-9]*)!([a-zA-Z_][a-zA-Z0-9_]*)!([a-zA-Z_][a-zA-Z0-9_]*)!(.+)!(.*)$")
+function(cpm_uri_scheme_from_string schemeStr alias longName uriType uriRoot uriSuffix)
+  if("${schemeStr}" MATCHES "^([a-zA-Z][a-zA-Z0-9]*)!([a-zA-Z_][a-zA-Z0-9_]*)!([a-zA-Z_][a-zA-Z0-9_]*)!(.+)!(.*)$")
     string(TOLOWER "${CMAKE_MATCH_1}" thisScheme)
     set(${alias} "${thisScheme}" PARENT_SCOPE)
     set(${longName} "${CMAKE_MATCH_2}" PARENT_SCOPE)
@@ -368,17 +368,12 @@ function(cpm_expand_via_scheme scheme uriFragment applySuffix expanded repoType 
       PARENT_SCOPE
   )
 
-  message(STATUS "Trying to match scheme ${scheme}")
-
   foreach(mapping ${CPM_URI_SCHEMES})
     if("${mapping}" MATCHES "^([a-zA-Z][a-zA-Z0-9]*)!([a-zA-Z_][a-zA-Z0-9_]*)!([a-zA-Z_][a-zA-Z0-9_]*)!(.+)!(.*)$")
       string(TOLOWER "${CMAKE_MATCH_1}" thisScheme)
       if(scheme STREQUAL ${thisScheme})
         set(longName "${CMAKE_MATCH_2}")
         set(uriRoot "${CMAKE_MATCH_4}")
-
-        message(STATUS "mapping: ALIAS ${thisScheme} LONG_NAME ${longName} URI_TYPE ${CMAKE_MATCH_3} URI_ROOT ${uriRoot} URI_SUFFIX ${CMAKE_MATCH_5}")
-
         set(suffix "${CMAKE_MATCH_5}")
         if(applySuffix)
           string(REGEX REPLACE "^([^#@]+)" "\\1${suffix}" uriFragment "${uriFragment}")
@@ -393,8 +388,6 @@ function(cpm_expand_via_scheme scheme uriFragment applySuffix expanded repoType 
         set(${repoType} ${CMAKE_MATCH_3} PARENT_SCOPE)
         cpm_infer_packageType(${uriFragment} inferredPackageType)
         set(${pkgType} ${inferredPackageType} PARENT_SCOPE)
-
-        message(STATUS "EXPANDED: ${expandedValue}")
         set(${success}
             "TRUE"
             PARENT_SCOPE
@@ -463,7 +456,6 @@ function(cpm_parse_add_package_single_arg arg outArgs)
   if(isScheme)
     cpm_expand_via_scheme(${scheme} ${uriFragment} TRUE outputVar repoType packageType successfulExpansion)
     if(successfulExpansion)
-      message(STATUS "Successfully expanded scheme to ${outputVar}")
       set(out "${outputVar}")
     else()
       message(FATAL_ERROR "${CPM_INDENT} Failed to expand scheme from '${arg}'")
@@ -644,7 +636,6 @@ function(CPMAddPackage)
   cmake_parse_arguments(CPM_ARGS "" "${oneValueArgs}" "${multiValueArgs}" "${ARGN}")
 
   # Set default values for arguments
-
   if(NOT DEFINED CPM_ARGS_VERSION)
     if(DEFINED CPM_ARGS_GIT_TAG)
       cpm_get_version_from_git_tag("${CPM_ARGS_GIT_TAG}" CPM_ARGS_VERSION)
@@ -658,19 +649,22 @@ function(CPMAddPackage)
   endif()
 
   foreach(schemeStr ${CPM_URI_SCHEMES})
-    cpm_uri_scheme_from_string(${scheme} alias longName uriType uriRoot uriSuffix)
-    string(JOIN CPM_ARGS_ ${longName} repoArg)
-    if(DEFINED repoArg)
-      cpm_expand_via_scheme(${alias} ${repoArg} FALSE completeUri successfulExpansion)
+    unset(cpmRepoType)
+    cpm_uri_scheme_from_string(${schemeStr} alias longName uriType uriRoot uriSuffix)
+    if(DEFINED CPM_ARGS_${longName})
+      string(CONCAT cpmRepoType CPM_ARGS_ ${longName})
+      cpm_expand_via_scheme(${alias} ${${cpmRepoType}} FALSE completeUri repoType pkgType successfulExpansion)
       if(NOT successfulExpansion)
         message(
                 FATAL_ERROR
-                "${CPM_INDENT} Failed to generate repository URL from '${repoArg}'"
+                "${CPM_INDENT} Failed to generate repository URL from '${cpmRepoType}'"
         )
       endif()
-      string(JOIN "" CPM_ARGS_ ${uriType} uriTypeArg)
-      set(${uriTypeArg} "${completeUri}")
+      string(CONCAT uriTypeArg CPM_ARGS_ ${uriType})
+      string(REPLACE ${longName} "" completeUri ${completeUri})
+      set(${uriTypeArg} ${completeUri})
     endif()
+
   endforeach()
 
   if(DEFINED CPM_ARGS_GIT_REPOSITORY)
