@@ -10,11 +10,14 @@ cpm_parse_add_package_single_arg("gh:cpm-cmake/CPM.cmake@1.2.3" args)
 assert_equal("GITHUB_REPOSITORY;https://github.com/cpm-cmake/CPM.cmake.git;VERSION;1.2.3" "${args}")
 
 cpm_parse_add_package_single_arg("gh:cpm-cmake/CPM.cmake#master" args)
-assert_equal("GITHUB_REPOSITORY;https://github.com/cpm-cmake/CPM.cmake.git;GIT_TAG;master" "${args}")
+assert_equal(
+  "GITHUB_REPOSITORY;https://github.com/cpm-cmake/CPM.cmake.git;GIT_TAG;master" "${args}"
+)
 
 cpm_parse_add_package_single_arg("gh:cpm-cmake/CPM.cmake@0.20.3#asdf" args)
 assert_equal(
-  "GITHUB_REPOSITORY;https://github.com/cpm-cmake/CPM.cmake.git;VERSION;0.20.3;GIT_TAG;asdf" "${args}"
+  "GITHUB_REPOSITORY;https://github.com/cpm-cmake/CPM.cmake.git;VERSION;0.20.3;GIT_TAG;asdf"
+  "${args}"
 )
 
 cpm_parse_add_package_single_arg("gh:a/b#c@d" args)
@@ -47,30 +50,39 @@ assert_equal("GIT_REPOSITORY;git@host.xz:user/pkg.git;VERSION;0.1.2" "${args}")
 cpm_parse_add_package_single_arg("git@host.xz:user/pkg.git@0.1.2#rc" args)
 assert_equal("GIT_REPOSITORY;git@host.xz:user/pkg.git;VERSION;0.1.2;GIT_TAG;rc" "${args}")
 
-CPMDefineUriScheme(
+cpmdefineurischeme(
   ALIAS
   "ir"
   LONG_NAME
   "INTERNAL_REPOS"
-        URI_TYPE "GIT_REPOSITORY"
+  URI_TYPE
+  "GIT_REPOSITORY"
   URI_ROOT
   "git@company.internal.gitserver"
 )
 
-CPMDefineUriScheme(
-        ALIAS
-        "ir2"
-        LONG_NAME
-        "INTERNAL_REPOS2"
-        URI_TYPE "GIT_REPOSITORY"
-        URI_ROOT
-        "https://company.internal.oldGitserver"
-        URI_SUFFIX
-        ".gitz"
+cpmdefineurischeme(
+  ALIAS
+  "ir2"
+  LONG_NAME
+  "INTERNAL_REPOS2"
+  URI_TYPE
+  "GIT_REPOSITORY"
+  URI_ROOT
+  "https://company.internal.oldGitserver"
+  URI_SUFFIX
+  ".gitz"
 )
 
-CPMDefineUriScheme(
-  ALIAS "af" LONG_NAME "ARTIFACTORY_PKG" URI_TYPE "URL" URI_ROOT "https://my.company.artifatory/pkgs"
+cpmdefineurischeme(
+  ALIAS
+  "af"
+  LONG_NAME
+  "ARTIFACTORY_PKG"
+  URI_TYPE
+  "URL"
+  URI_ROOT
+  "https://my.company.artifatory/pkgs"
 )
 
 cpm_parse_add_package_single_arg("ir:somegroup/somerepo@0.20.3#asdf" args)
@@ -81,8 +93,8 @@ assert_equal(
 
 cpm_parse_add_package_single_arg("ir2:somegroup/somerepo@0.20.3#asdf" args)
 assert_equal(
-        "INTERNAL_REPOS2;https://company.internal.oldGitserver/somegroup/somerepo.gitz;VERSION;0.20.3;GIT_TAG;asdf"
-        "${args}"
+  "INTERNAL_REPOS2;https://company.internal.oldGitserver/somegroup/somerepo.gitz;VERSION;0.20.3;GIT_TAG;asdf"
+  "${args}"
 )
 
 cpm_parse_add_package_single_arg("af:somegroup/someitem.zip" args)
