@@ -664,7 +664,6 @@ function(CPMAddPackage)
       string(REPLACE ${longName} "" completeUri ${completeUri})
       set(${uriTypeArg} ${completeUri})
     endif()
-
   endforeach()
 
   if(DEFINED CPM_ARGS_GIT_REPOSITORY)
